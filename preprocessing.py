@@ -62,6 +62,7 @@ def collect_scenes(data_root: Path):
         scenes[territory].append({
             "path": tif,
             "year": date.year,
+            "date": date,
             "sensor": sensor
         })
 
@@ -124,19 +125,25 @@ def align_and_downsample(scenes: dict, output_dir: Path = None):
 
 def prepare_ms_timeseries(scenes, output_dir=None):
     """
-    Для каждой территории (Amga, Yunkor) приводит все MS-снимки к единой сетке,
+    Для каждой территории приводит все MS и PMS снимки к единой сетке,
     используя первый MS-снимок территории как опорный.
-    Возвращает словарь: {territory: {'arrays': [{'year': year, 'ms_array': arr}],
+    Возвращает словарь: {territory: {'arrays': [{'year': year, 'date': date, 'ms_array': arr}],
                                       'ref_meta': метаданные опорного снимка}}
     """
     aligned = {}
 
     for territory in ["Amga", "Yunkor"]:
-        ms_items = [item for item in scenes[territory] if item["sensor"] == "MS"]
-        if not ms_items:
+        # Все снимки (MS и PMS) территории
+        all_items = scenes[territory]
+        if not all_items:
             continue
 
-        # Опорный снимок — первый (уже отсортировано по годам)
+        # Находим первый MS как опорный
+        ms_items = [item for item in all_items if item["sensor"] == "MS"]
+        if not ms_items:
+            print(f"{territory}: нет MS-снимков, пропускаем")
+            continue
+
         ref_item = ms_items[0]
         with rasterio.open(ref_item["path"]) as src:
             ref_transform = src.transform
@@ -146,22 +153,27 @@ def prepare_ms_timeseries(scenes, output_dir=None):
             ref_meta = src.meta.copy()
 
         arrays = []
-        for item in tqdm(ms_items, desc=f"Aligning {territory} MS"):
-            if item["path"] == ref_item["path"]:
+        for item in tqdm(all_items, desc=f"Aligning {territory} (MS+PMS)"):
+            # Если это опорный MS, читаем без репроекции
+            if item["sensor"] == "MS" and item["path"] == ref_item["path"]:
                 with rasterio.open(item["path"]) as src:
                     ms_array = src.read()
             else:
                 ms_array = reproject_to_ref(
                     item["path"], ref_transform, ref_crs, ref_height, ref_width
                 )
-            arrays.append({"year": item["year"], "ms_array": ms_array})
+            arrays.append({
+                "year": item["year"],
+                "date": item["date"],
+                "ms_array": ms_array
+            })
 
         # Сохраняем выровненные файлы (опционально)
         if output_dir:
-            out_dir = Path(output_dir)
+            out_dir = Path(output_dir) / territory
             out_dir.mkdir(parents=True, exist_ok=True)
             for sc in arrays:
-                out_path = out_dir / f"{territory}_{sc['year']}_aligned.tif"
+                out_path = out_dir / f"{territory}_{sc['year']}_{sc['date'].strftime('%Y%m%d')}_aligned.tif"
                 meta_out = ref_meta.copy()
                 meta_out.update({
                     "driver": "GTiff",
@@ -194,35 +206,33 @@ def compute_ndwi(ms_array):
     ndwi = (green - nir) / (green + nir + 1e-10)
     return ndwi
 
-def compute_trend(index_arrays, years):
+def compute_ndvi(ms_array):
+    """NDVI = (NIR - Red) / (NIR + Red)"""
+    red = ms_array[2, :, :].astype(np.float32)
+    nir = ms_array[3, :, :].astype(np.float32)
+    ndvi = (nir - red) / (nir + red + 1e-10)
+    return ndvi
+
+def get_feature_functions():
+    """Возвращает словарь доступных признаков: имя -> функция."""
+    return {
+        "NDWI": compute_ndwi,
+        "NDVI": compute_ndvi,
+        # сюда можно добавлять новые
+    }
+
+def build_composite(ms_array, feature_dict=None):
     """
-    Для каждого пикселя строит линейную регрессию.
-    index_arrays: list of 2D numpy arrays (height, width) – значения индекса
-    years: list of int (соответствует порядку)
-    Возвращает: slope, intercept
+    Принимает MS-массив и словарь признаков.
+    Если feature_dict не задан, используется словарь по умолчанию из get_feature_functions().
     """
-    height, width = index_arrays[0].shape
-    slope = np.full((height, width), np.nan, dtype=np.float32)
-    intercept = np.full((height, width), np.nan, dtype=np.float32)
-
-    years = np.array(years, dtype=np.float32)
-    years_mean = years.mean()
-    years_centered = years - years_mean
-
-    for i in tqdm(range(height), desc="Pixel trend"):
-        for j in range(width):
-            y = [arr[i, j] for arr in index_arrays]
-            valid = ~np.isnan(y)
-            if np.sum(valid) < 2:
-                continue
-            x = years_centered[valid]
-            y_valid = np.array(y)[valid]
-            model = LinearRegression()
-            model.fit(x.reshape(-1, 1), y_valid)
-            slope[i, j] = model.coef_[0]
-            intercept[i, j] = model.intercept_
-
-    return slope, intercept
+    if feature_dict is None:
+        feature_dict = get_feature_functions()
+    layers = []
+    for name, func in feature_dict.items():
+        layer = func(ms_array)
+        layers.append(layer[np.newaxis, :, :])
+    return np.concatenate(layers, axis=0)
 
 def main():
     data_root = Path(__file__).parent / "GISIT_Якутск_Данные"
@@ -240,29 +250,35 @@ def main():
             print(f"{territory}: нет MS-снимков, пропускаем")
             continue
 
-        # Получаем данные территории
-        data = aligned[territory]   # это словарь с ключами 'arrays', 'ref_meta', ...
-        arrays = data["arrays"]      # список {'year': ..., 'ms_array': ...}
-        arrays.sort(key=lambda x: x["year"])  # сортируем по году
+        data = aligned[territory]
+        arrays = data["arrays"]
+        arrays.sort(key=lambda x: x["year"])
 
-        years = [sc["year"] for sc in arrays]
-        ndwi_arrays = [compute_ndwi(sc["ms_array"]) for sc in arrays]
+        # Для каждого снимка создаём композит и сохраняем
+        num = 0
+        for sc in arrays:
+            # Формируем имя файла: ddmmyyyy
+            num += 1
+            date_str = sc["date"].strftime("%d%m%Y")
+            out_composite = results_dir / "composites" / territory / f"{num}.tif"
+            out_composite.parent.mkdir(parents=True, exist_ok=True)
 
-        slope, intercept = compute_trend(ndwi_arrays, years)
+            # Строим композит из всех признаков
+            composite = build_composite(sc["ms_array"])
 
-        out_slope = results_dir / f"{territory}_NDWI_trend_slope.tif"
-        out_intercept = results_dir / f"{territory}_NDWI_trend_intercept.tif"
+            # Метаданные для записи композита
+            meta_out = data["ref_meta"].copy()
+            meta_out.update({
+                "driver": "GTiff",
+                "count": composite.shape[0],
+                "dtype": composite.dtype,
+                "compress": "lzw"
+            })
 
-        # Метаданные из опорного снимка
-        meta_out = data["ref_meta"].copy()
-        meta_out.update({"count": 1, "dtype": slope.dtype, "compress": "lzw"})
+            with rasterio.open(out_composite, "w", **meta_out) as dst:
+                dst.write(composite)
 
-        with rasterio.open(out_slope, "w", **meta_out) as dst:
-            dst.write(slope, 1)
-        with rasterio.open(out_intercept, "w", **meta_out) as dst:
-            dst.write(intercept, 1)
-
-        print(f"{territory}: тренд сохранён в {out_slope} и {out_intercept}")
+            print(f"{territory} {date_str}: композит сохранён в {out_composite}")
 
 if __name__ == "__main__":
     main()
