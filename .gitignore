@@ -209,4 +209,7 @@ __marimo__/
 /Земельный Кадастр_Якутия/
 /GISIT_Якутск_Данные/
 /.idea/
-/result/*.tif
+/result/composites/
+/scene/*.qmd
+*.tif
+*.xml
