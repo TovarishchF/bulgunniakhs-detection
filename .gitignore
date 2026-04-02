@@ -210,4 +210,6 @@ __marimo__/
 /GISIT_Якутск_Данные/
 /.idea/
 /result/composites/
+/scene/*.qmd
 *.tif
+*.xml
