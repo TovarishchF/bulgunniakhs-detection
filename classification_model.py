@@ -16,16 +16,16 @@ import sys
 warnings.filterwarnings("ignore")
 
 RF_CONFIG = {
-    "n_estimators": 100, #200
-    "max_depth": 16, #20
-    "random_state": 42, #42
-    "n_jobs": -1, #-1
-    "class_weight": "balanced", #'balanced'
+    "n_estimators": 100, 
+    "max_depth": 16, 
+    "random_state": 42, 
+    "n_jobs": -1, 
+    "class_weight": "balanced", 
     "oob_score": True
 }
 
 if '--train' in sys.argv:
-    TRAIN_NEW_MODEL = True  # обучить новую модель
+    TRAIN_NEW_MODEL = True  # обучить
 else:
     TRAIN_NEW_MODEL = False  # не обучать
 
@@ -42,7 +42,6 @@ def compute_texture_features(image, window_size=3):
         texture[c] = generic_filter(image[c], np.std, size=window_size, mode='reflect')
     return texture
 
-# Репроекция GeoJSON
 def reproject_geojson(geojson_path, dst_crs):
     gdf = gpd.read_file(geojson_path)
     if gdf.crs is None:
@@ -51,7 +50,6 @@ def reproject_geojson(geojson_path, dst_crs):
         gdf = gdf.to_crs(dst_crs)
     return gdf
 
-# Загрузка одного композита и маски
 def load_training_data(composite_path, geojson_path):
     with rasterio.open(composite_path) as src:
         image = src.read().astype(np.float32)
@@ -78,7 +76,6 @@ def load_training_data(composite_path, geojson_path):
         raise ValueError("Маска пуста")
     return image, mask, meta
 
-# Сбор пикселей из одного снимка (исходные каналы + текстуры)
 def collect_samples(image, mask, texture, background_ratio=5):
     combined = np.concatenate([image, texture], axis=0)
     C = combined.shape[0]
@@ -109,7 +106,6 @@ def collect_samples(image, mask, texture, background_ratio=5):
     print(f"    Собрано {len(X)} пикселей (объектов: {n_obj}, фон: {n_bg}), признаков: {X.shape[1]}")
     return X, y
 
-# Нормализация
 def normalize_by_stats(image, mean, std, eps=1e-6):
     C = image.shape[0]
     for c in range(C):
@@ -121,7 +117,7 @@ def compute_stats_from_samples(X):
     std = X.std(axis=0)
     return mean, std
 
-# Обучение модели на объединённых данных
+# Обучение модели
 def train_and_evaluate(X, y, config):
     X_train, X_val, y_train, y_val = train_test_split(
         X, y, test_size=0.2, random_state=42, stratify=y
@@ -156,7 +152,6 @@ def train_and_evaluate(X, y, config):
         tex_imp = model.feature_importances_[i + n_features]
         print(f"Признак {i} (исх): {orig_imp:.4f} | текстура {i}: {tex_imp:.4f}")
 
-    # Сохраняем валидационные данные для визуализации
     val_dir = Path("validation_data")
     val_dir.mkdir(parents=True, exist_ok=True)
     np.save(val_dir / "y_val.npy", y_val)
@@ -166,7 +161,7 @@ def train_and_evaluate(X, y, config):
 
     return model, best_thr
 
-# Предсказание для полного изображения
+# Предсказание 
 def predict_image(model, image, mean_stats, std_stats, batch_size=50000, threshold=0.5):
     texture = compute_texture_features(image)
     combined = np.concatenate([image, texture], axis=0)
@@ -197,7 +192,6 @@ def postprocess_mask(prob_map, threshold, min_area=100):
     binary = morphology.closing(binary, morphology.square(3))
     return binary
 
-# Основная функция
 def main():
     training_pairs = [
         ("Amga", "27082019", "27082019.geojson"),
@@ -213,12 +207,9 @@ def main():
     output_dir = base_dir / "result" / "masks_rf"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Загрузка или обучение модели
     if TRAIN_NEW_MODEL:
-        # Сбор обучающих пикселей
         all_X = []
         all_y = []
-        print("Загрузка обучающих данных...")
         for territory, comp_name, geojson_name in training_pairs:
             comp_path = composite_base / territory / f"{comp_name}.tif"
             geojson_path = scene_dir / geojson_name
@@ -242,7 +233,6 @@ def main():
         y = np.concatenate(all_y, axis=0)
         print(f"\nВсего собрано {len(X)} пикселей (объектов: {np.sum(y==1)}, фон: {np.sum(y==0)})")
 
-        # 2. Нормализация и обучение
         mean_stats, std_stats = compute_stats_from_samples(X)
         print(f"Статистики каналов (первые 6 mean): {mean_stats[:6]}...")
         X_norm = X.copy()
@@ -250,11 +240,9 @@ def main():
             X_norm[:, i] = (X_norm[:, i] - mean_stats[i]) / (std_stats[i] + 1e-6)
         model, best_thr = train_and_evaluate(X_norm, y, RF_CONFIG)
 
-        # 3. Сохранение модели
         joblib.dump({'model': model, 'mean': mean_stats, 'std': std_stats, 'threshold': best_thr}, MODEL_PATH)
         print(f"Модель сохранена в {MODEL_PATH}")
     else:
-        # Загрузка существующей модели
         if not MODEL_PATH.exists():
             raise FileNotFoundError(f"Файл модели не найден: {MODEL_PATH}. Установите TRAIN_NEW_MODEL = True для обучения.")
         checkpoint = joblib.load(MODEL_PATH)
