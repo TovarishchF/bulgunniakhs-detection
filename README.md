@@ -54,6 +54,8 @@ bulgunniakhs-detection/
 │ ├── Yunkor_big_AOI.geojson  
 │ ├── Yunkor_scene_AOI.geojson  
 │ ├── 27082019.geojson # обучающие полигоны (class: 1 – объект, 0 – фон)  
+│ ├── 13072021.geojson
+│ ├── 30082023.geojson
 │ └── 06052025.geojson  
 │  
 ├── result/ # результаты работы  
