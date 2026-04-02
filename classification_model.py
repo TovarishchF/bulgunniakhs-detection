@@ -23,9 +23,10 @@ RF_CONFIG = {
     "random_state": 42, #42
     "n_jobs": -1, #-1
     "class_weight": "balanced", #'balanced'
+    "oob_score": True
 }
 
-TRAIN_NEW_MODEL = False   # True - обучить новую, False - загрузить существующую
+TRAIN_NEW_MODEL = True   # True - обучить новую, False - загрузить существующую
 MODEL_PATH = Path(__file__).parent / "Amga_rf_multisource.pkl"
 
 # ------------------------------------------------------------
@@ -161,6 +162,14 @@ def train_and_evaluate(X, y, config):
         orig_imp = model.feature_importances_[i]
         tex_imp = model.feature_importances_[i + n_features]
         print(f"Признак {i} (исх): {orig_imp:.4f} | текстура {i}: {tex_imp:.4f}")
+
+    # Сохраняем валидационные данные для визуализации
+    val_dir = Path("validation_data")
+    val_dir.mkdir(parents=True, exist_ok=True)
+    np.save(val_dir / "y_val.npy", y_val)
+    np.save(val_dir / "y_pred.npy", y_pred_bin)
+    np.save(val_dir / "y_prob.npy", y_pred_prob)
+    print(f"Валидационные данные сохранены в {val_dir}")
 
     return model, best_thr
 
