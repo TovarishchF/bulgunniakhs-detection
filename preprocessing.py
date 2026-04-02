@@ -1,15 +1,13 @@
+import re, rasterio
+import numpy as np
 from pathlib import Path
 from datetime import datetime
 from collections import OrderedDict
-
-import re
-import numpy as np
-import rasterio
 from rasterio.enums import Resampling
 from rasterio.warp import reproject
-from scipy.ndimage import sobel, gaussian_filter
-from tqdm import tqdm
-
+from scipy.ndimage import gaussian_filter
+#from tqdm import tqdm
+#pip8 в данном месте не учтён - правило одна строка = один import, но так в этом случае удобнее(Р-22:32)
 def collect_scenes(data_root: Path):
     scenes = {"Amga": [], "Yunkor": []}
     for tif in data_root.rglob("*.tif"):
@@ -56,12 +54,14 @@ def reproject_to_ref(src_path, ref_transform, ref_crs, ref_height, ref_width):
             resampling=Resampling.bilinear
         )
         return dst
-
+#коллега Р недоволен - функции align_and_downsample и prepare_ms_timeseries нигде не вызываются (Р-22:40), удалять сейчас не надо - риски для кода
+'''
 def align_and_downsample(scenes: dict, output_dir: Path = None):
     amga_ms = next(item for item in scenes["Amga"] if item["sensor"] == "MS")
     amga_pms = next(item for item in scenes["Amga"] if item["sensor"] == "PMS")
     yunkor_ms = next(item for item in scenes["Yunkor"] if item["sensor"] == "MS")
-
+    #генераторные выражения, солидно(Р-22:35)
+    
     with rasterio.open(amga_ms["path"]) as src:
         ref_meta = src.meta.copy()
         ref_transform = src.transform
@@ -78,15 +78,13 @@ def align_and_downsample(scenes: dict, output_dir: Path = None):
         for name, arr in [('amga_pms_downsampled', amga_pms_downsampled),('yunkor_ms_aligned', yunkor_ms_aligned)]:
             out_path = output_dir / f"{name}.tif"
             meta_out = ref_meta.copy()
-            meta_out.update({'driver': 'GTiff', 'height': ref_height, 'width': ref_width,
-                             'count': arr.shape[0], 'dtype': arr.dtype})
+            meta_out.update({'driver': 'GTiff', 'height': ref_height, 'width': ref_width, 'count': arr.shape[0], 'dtype': arr.dtype})
             with rasterio.open(out_path, 'w', **meta_out) as dst:
                 for i in range(arr.shape[0]):
                     dst.write(arr[i], i+1)
             result[f'{name}_path'] = out_path
 
     return result
-
 def prepare_ms_timeseries(scenes, output_dir=None):
     aligned = {}
 
@@ -109,7 +107,8 @@ def prepare_ms_timeseries(scenes, output_dir=None):
             ref_meta = src.meta.copy()
 
         arrays = []
-        for item in tqdm(all_items, desc=f"Aligning {territory} (MS+PMS)"):
+#for item in tqdm(all_items, desc=f"Aligning {territory} (MS+PMS)"):        
+        for item in all_items:
             if item["sensor"] == "MS" and item["path"] == ref_item["path"]:
                 with rasterio.open(item["path"]) as src:
                     ms_array = src.read()
@@ -149,7 +148,7 @@ def prepare_ms_timeseries(scenes, output_dir=None):
         }
 
     return aligned
-
+'''
 get_blue = lambda array: array[0, :, :].astype(np.float32)
 get_green = lambda array: array[1, :, :].astype(np.float32)
 get_red = lambda array: array[2, :, :].astype(np.float32)
@@ -214,15 +213,11 @@ def process_dem(territory, dem_path, ref_meta, output_dir):
     slope_path = out_dir / f"{territory}_slope.tif"
     with rasterio.open(slope_path, 'w', **meta_out) as dst:
         dst.write(slope, 1)
-
     aspect_path = out_dir / f"{territory}_aspect.tif"
     with rasterio.open(aspect_path, 'w', **meta_out) as dst:
         dst.write(aspect, 1)
 
-    return {
-        'slope': slope_path,
-        'aspect': aspect_path,
-    }
+    return { 'slope': slope_path, 'aspect': aspect_path}
 
 def reproject_dem_to_match(dem_path, target_meta):
     with rasterio.open(dem_path) as src_dem:
@@ -245,7 +240,6 @@ def reproject_dem_to_match(dem_path, target_meta):
     return dem_aligned
 
 def load_morpho_layers(morpho_paths):
-    """Загружает морфометрические слои из файлов."""
     layers = []
     with rasterio.open(morpho_paths['slope']) as src:
         layers.append(src.read(1).astype(np.float32)[np.newaxis, :, :])
@@ -275,26 +269,24 @@ def build_composite(ms_array, feature_dict=None):
 def main():
     data_root = Path(__file__).parent / "GISIT_Якутск_Данные"
     scenes = collect_scenes(data_root)
-
     results_dir = Path(__file__).parent / "result"
     results_dir.mkdir(parents=True, exist_ok=True)
-
-    # Загружаем DEM для территорий (один раз)
+    #работа с DEM
     dem_paths = {}
     for territory in ["Amga", "Yunkor"]:
         dem_path = Path(__file__).parent / f"{territory}_dem.tif"
         if dem_path.exists():
             dem_paths[territory] = dem_path
-            print(f"DEM для {territory} найден, будет добавлен уклон и экспозиция")
+            print(f"DEM для {territory} найден, будет добавлен уклон и экспозиция.")
         else:
-            print(f"DEM для {territory} не найден, морфометрические признаки не добавлены")
+            print(f"DEM для {territory} не найден, морфометрические признаки не добавлены.")
 
     for territory in ["Amga", "Yunkor"]:
         items = scenes[territory]
         if not items:
             continue
-
-        for item in tqdm(items, desc=f"Processing {territory}"):
+#for item in tqdm(items, desc=f"Processing {territory}"): # этот вариант красивый, но может не запуститься(Р-23:10)
+        for item in items:
             if item["sensor"] != "MS":
                 continue  
 
@@ -305,29 +297,19 @@ def main():
 
             if territory in dem_paths:
                 dem_aligned = reproject_dem_to_match(dem_paths[territory], meta)
-                # Размер пикселя 
                 res_x = abs(meta['transform'].a)
                 res_y = abs(meta['transform'].e)
                 resolution = (res_x + res_y) / 2
                 slope = compute_slope(dem_aligned, resolution)
                 aspect = compute_aspect(dem_aligned, resolution)
-                composite = np.concatenate([
-                    composite,
-                    slope[np.newaxis, :, :],
-                    aspect[np.newaxis, :, :]
-                ], axis=0)
+                composite = np.concatenate([composite, slope[np.newaxis, :, :], aspect[np.newaxis, :, :]], axis=0)
 
             date_str = item["date"].strftime("%d%m%Y")
             out_path = results_dir / "composites" / territory / f"{date_str}.tif"
             out_path.parent.mkdir(parents=True, exist_ok=True)
-
+            # интересный факт - mkdir создаёт родительскую папку в случае отсутствия таковой(Р-23:09)
             meta_out = meta.copy()
-            meta_out.update({
-                "driver": "GTiff",
-                "count": composite.shape[0],
-                "dtype": composite.dtype,
-                "compress": "lzw"
-            })
+            meta_out.update({"driver": "GTiff", "count": composite.shape[0], "dtype": composite.dtype, "compress": "lzw"})
             with rasterio.open(out_path, "w", **meta_out) as dst:
                 dst.write(composite)
             print(f"{territory} {date_str}: композит ({composite.shape[0]} каналов) сохранён в {out_path}")
