@@ -9,14 +9,13 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
 import subprocess
 import sys
-
+#файл не Р, поэтому тут всё по pip8
 
 def ensure_points_generated(points_base_dir):
-    """Проверяет наличие точек, если нет – запускает vector.py."""
     if points_base_dir.exists() and any(points_base_dir.glob("**/*.geojson")):
         print("Точки уже существуют, пропускаем vector.py")
         return True
-    print("Точки не найдены, запускаем vector.py...")
+    print("Точки не найдены")
     vector_script = Path(__file__).parent / "vector.py"
     if not vector_script.exists():
         print("Ошибка: vector.py не найден")
@@ -31,7 +30,6 @@ def ensure_points_generated(points_base_dir):
 
 
 def get_crs_from_composite(territory, composites_base):
-    """Загружает CRS из любого композита территории."""
     comp_dir = Path(composites_base) / territory
     tif_files = list(comp_dir.glob("*.tif"))
     if not tif_files:
@@ -91,7 +89,7 @@ def generate_heatmap_fast(territory, points_base_dir, composites_base, output_di
     sigma_pixels = sigma / resolution
     density = gaussian_filter(mask, sigma=sigma_pixels, mode='reflect')
 
-    # Логарифмическое масштабирование для визуализации
+    # Логарифмическое масштабирование
     density_log = np.log1p(density)
     if density_log.max() > 0:
         density_norm = density_log / density_log.max()
@@ -101,18 +99,7 @@ def generate_heatmap_fast(territory, points_base_dir, composites_base, output_di
     out_dir = Path(output_dir) / territory
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Сохраняем GeoTIFF с исходной плотностью
-    meta = {
-        "driver": "GTiff",
-        "height": height,
-        "width": width,
-        "count": 1,
-        "dtype": np.float32,
-        "crs": crs,
-        "transform": transform,
-        "compress": "lzw",
-        "nodata": np.nan
-    }
+    meta = {"driver": "GTiff", "height": height, "width": width, "count": 1, "dtype": np.float32, "crs": crs, "transform": transform, "compress": "lzw", "nodata": np.nan}
     raster_path = out_dir / "heatmap_density.tif"
     with rasterio.open(raster_path, "w", **meta) as dst:
         dst.write(density.astype(np.float32), 1)
@@ -127,25 +114,22 @@ def generate_heatmap_fast(territory, points_base_dir, composites_base, output_di
     ax.set_ylabel('Широта')
     plt.tight_layout()
     png_path = out_dir / "heatmap.png"
-    plt.savefig(png_path, dpi=150)
+    plt.savefig(png_path, dpi=150) #снова есть момент с базовым dpi
     plt.close()
     print(f"Тепловая карта для {territory} сохранена в {png_path}")
-
 
 if __name__ == "__main__":
     output_dir = Path(__file__).parent / "result" / "aggregated"
     output_dir.mkdir(parents=True, exist_ok=True)
-
     points_base_dir = Path(__file__).parent / "result" / "t_vector"
     composites_base = Path(__file__).parent / "result" / "composites"
 
     if not ensure_points_generated(points_base_dir):
-        print("Не удалось получить точки, выход.")
-        sys.exit(1)
+        print("Не удалось получить точки.")
+        sys.exit(1) #Р доволен 
 
     for territory in ["Amga", "Yunkor"]:
         try:
-            generate_heatmap_fast(territory, points_base_dir, composites_base, output_dir,
-                                  resolution=10, sigma=100, point_weight=0.05)
+            generate_heatmap_fast(territory, points_base_dir, composites_base, output_dir, resolution=10, sigma=100, point_weight=0.05)
         except Exception as e:
             print(f"Ошибка для {territory}: {e}")
