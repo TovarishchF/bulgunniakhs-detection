@@ -1,0 +1,8 @@
+{
+"type": "FeatureCollection",
+"name": "13092021_pred",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:EPSG::32652" } },
+"features": [
+
+]
+}
