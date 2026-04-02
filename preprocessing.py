@@ -37,12 +37,7 @@ def collect_scenes(data_root: Path):
         else:
             continue
 
-        scenes[territory].append({
-            "path": tif,
-            "year": date.year,
-            "date": date,
-            "sensor": sensor
-        })
+        scenes[territory].append({"path": tif, "year": date.year, "date": date, "sensor": sensor})
 
     for key in scenes:
         scenes[key].sort(key=lambda x: x["year"])
@@ -76,17 +71,12 @@ def align_and_downsample(scenes: dict, output_dir: Path = None):
     amga_pms_downsampled = reproject_to_ref(amga_pms["path"], ref_transform, ref_crs, ref_height, ref_width)
     yunkor_ms_aligned = reproject_to_ref(yunkor_ms["path"], ref_transform, ref_crs, ref_height, ref_width)
 
-    result = {
-        'reference_meta': ref_meta,
-        'amga_pms_downsampled': amga_pms_downsampled,
-        'yunkor_ms_aligned': yunkor_ms_aligned
-    }
+    result = {'reference_meta': ref_meta, 'amga_pms_downsampled': amga_pms_downsampled, 'yunkor_ms_aligned': yunkor_ms_aligned}
 
     if output_dir:
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
-        for name, arr in [('amga_pms_downsampled', amga_pms_downsampled),
-                          ('yunkor_ms_aligned', yunkor_ms_aligned)]:
+        for name, arr in [('amga_pms_downsampled', amga_pms_downsampled),('yunkor_ms_aligned', yunkor_ms_aligned)]:
             out_path = output_dir / f"{name}.tif"
             meta_out = ref_meta.copy()
             meta_out.update({'driver': 'GTiff', 'height': ref_height, 'width': ref_width,
