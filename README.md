@@ -77,7 +77,7 @@ bulgunniakhs-detection/
 ├── vector.py # вспомогательная утилита извлечения центроидов пикселов битмаски  
 ├── pipeline.py # единый пайплайн    
 │  
-├── requirements.txt # зависимости
+├── requirements.txt # зависимости  
 ├── README.md # этот файл  
 └── LICENSE # лицензия MIT
 
