@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import logging
 from pathlib import Path
 import rasterio
@@ -6,6 +5,7 @@ from rasterio import transform
 from shapely.geometry import Point
 import geopandas as gpd
 import numpy as np
+from tqdm import tqdm
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -40,4 +40,8 @@ def process_folder(folder_path: str, output_folder: str = None, use_pixel_center
         _process_tiff(str(tiff_file), str(output_path), use_pixel_center)
 
 if __name__ == "__main__":
-    process_folder(folder_path="result/masks_rf/Amga", output_folder="result/t_vector", use_pixel_center=True)
+    territories = ["Amga", "Yunkor"]
+    for territory in tqdm(territories, desc="Обработка территорий"):
+        input_folder = f"result/masks_rf/{territory}"
+        output_folder = f"result/t_vector/{territory}"
+        process_folder(folder_path=input_folder, output_folder=output_folder, use_pixel_center=True)
