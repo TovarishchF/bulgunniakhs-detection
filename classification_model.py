@@ -15,7 +15,6 @@ import warnings
 import sys
 warnings.filterwarnings("ignore")
 
-# Конфигурация
 RF_CONFIG = {
     "n_estimators": 100, #200
     "max_depth": 16, #20
@@ -85,9 +84,7 @@ def load_training_data(composite_path, geojson_path):
         raise ValueError("Маска пуста")
     return image, mask, meta
 
-# ------------------------------------------------------------
 # Сбор пикселей из одного снимка (исходные каналы + текстуры)
-# ------------------------------------------------------------
 def collect_samples(image, mask, texture, background_ratio=5):
     combined = np.concatenate([image, texture], axis=0)
     C = combined.shape[0]
@@ -118,9 +115,7 @@ def collect_samples(image, mask, texture, background_ratio=5):
     print(f"    Собрано {len(X)} пикселей (объектов: {n_obj}, фон: {n_bg}), признаков: {X.shape[1]}")
     return X, y
 
-# ------------------------------------------------------------
 # Нормализация
-# ------------------------------------------------------------
 def normalize_by_stats(image, mean, std, eps=1e-6):
     C = image.shape[0]
     for c in range(C):
@@ -132,9 +127,7 @@ def compute_stats_from_samples(X):
     std = X.std(axis=0)
     return mean, std
 
-# ------------------------------------------------------------
 # Обучение модели на объединённых данных
-# ------------------------------------------------------------
 def train_and_evaluate(X, y, config):
     X_train, X_val, y_train, y_val = train_test_split(
         X, y, test_size=0.2, random_state=42, stratify=y
