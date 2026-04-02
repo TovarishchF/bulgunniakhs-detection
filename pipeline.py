@@ -1,17 +1,14 @@
-import subprocess
-import sys
-import argparse
+import subprocess, sys, argparse
 from pathlib import Path
+#pip8 в данном месте не учтён - правило одна строка = один import, но так в этом случае удобнее(Р-22:32)
 
-# Конфигурация путей
 BASE_DIR = Path(__file__).parent
 COMPOSITES_DIR = BASE_DIR / "result" / "composites"
 MASKS_DIR = BASE_DIR / "result" / "masks_rf"
 MODEL_PATH = BASE_DIR / "Amga_rf_multisource.pkl"
 
-# Функции запуска скриптов
+# Запуск скриптов
 def run_script(script_name, args=None):
-    """Запускает Python скрипт с переданными аргументами."""
     cmd = [sys.executable, str(BASE_DIR / script_name)]
     if args:
         cmd.extend(args)
@@ -56,11 +53,9 @@ def main():
 
     # 3. Классификация
     if not args.skip_classification:
-        # Проверяем, нужно ли переобучать модель
         classification_args = []
         if args.train_model:
             classification_args.append("--train")
-        # Если модель уже есть и не требуется переобучение, запускаем без --train
         run_script("classification_model.py", classification_args)
     else:
         print("Пропускаем классификацию (--skip-classification)")
@@ -84,8 +79,6 @@ def main():
             sys.exit(1)
     else:
         print("Пропускаем визуализацию (--skip-visualization)")
-
-    print("\nОбработка завершена!")
 
 if __name__ == "__main__":
     main()
