@@ -12,11 +12,10 @@ from tqdm import tqdm
 from scipy import ndimage as ndi
 from skimage import morphology
 import warnings
+import sys
 warnings.filterwarnings("ignore")
 
-# ------------------------------------------------------------
 # Конфигурация
-# ------------------------------------------------------------
 RF_CONFIG = {
     "n_estimators": 100, #200
     "max_depth": 16, #20
@@ -26,7 +25,14 @@ RF_CONFIG = {
     "oob_score": True
 }
 
-TRAIN_NEW_MODEL = True   # True - обучить новую, False - загрузить существующую
+if '--train' in sys.argv:
+    TRAIN_NEW_MODEL = True  # обучить новую модель
+else:
+    TRAIN_NEW_MODEL = False  # не обучать
+
+# удалить
+TRAIN_NEW_MODEL = True
+
 MODEL_PATH = Path(__file__).parent / "Amga_rf_multisource.pkl"
 
 # ------------------------------------------------------------
@@ -153,8 +159,8 @@ def train_and_evaluate(X, y, config):
     print(f"Accuracy: {accuracy_score(y_val, y_pred_bin):.4f}")
     print(f"Recall (объекты): {recall_score(y_val, y_pred_bin):.4f}")
     print(f"F1-score: {f1_score(y_val, y_pred_bin):.4f}")
-    print("\nClassification report:\n", classification_report(y_val, y_pred_bin, target_names=['фон', 'объект']))
-    print("Confusion matrix:\n", confusion_matrix(y_val, y_pred_bin))
+    print("\nОтчёт классификации:\n", classification_report(y_val, y_pred_bin, target_names=['фон', 'объект']))
+    print("Матрица ошибок:\n", confusion_matrix(y_val, y_pred_bin))
 
     print("\n=== Важность признаков ===")
     n_features = X.shape[1] // 2
@@ -173,9 +179,7 @@ def train_and_evaluate(X, y, config):
 
     return model, best_thr
 
-# ------------------------------------------------------------
 # Предсказание для полного изображения
-# ------------------------------------------------------------
 def predict_image(model, image, mean_stats, std_stats, batch_size=50000, threshold=0.5):
     texture = compute_texture_features(image)
     combined = np.concatenate([image, texture], axis=0)
@@ -193,9 +197,7 @@ def predict_image(model, image, mean_stats, std_stats, batch_size=50000, thresho
     print(f"  Вероятности: min={prob_map.min():.3f}, max={prob_map.max():.3f}, mean={prob_map.mean():.3f}")
     return prob_map
 
-# ------------------------------------------------------------
 # Постобработка
-# ------------------------------------------------------------
 def postprocess_mask(prob_map, threshold, min_area=100):
     binary = (prob_map > threshold).astype(np.uint8)
     if np.sum(binary) == 0:
@@ -208,19 +210,15 @@ def postprocess_mask(prob_map, threshold, min_area=100):
     binary = morphology.closing(binary, morphology.square(3))
     return binary
 
-# ------------------------------------------------------------
 # Основная функция
-# ------------------------------------------------------------
 def main():
-    # ---------- НАСТРОЙКИ ----------
-    territory_for_training = "Amga"
     training_pairs = [
-        ("27082019", "27082019.geojson"),
-        ("06052025", "06052025.geojson"),
+        ("Amga", "27082019", "27082019.geojson"),
+        ("Amga", "06052025", "06052025.geojson"),
+        ("Yunkor", "13072021", "13072021.geojson"),
     ]
     territories_to_predict = ["Amga", "Yunkor"]
     background_ratio = 5
-    # ------------------------------
 
     base_dir = Path(__file__).parent
     composite_base = base_dir / "result" / "composites"
@@ -228,14 +226,14 @@ def main():
     output_dir = base_dir / "result" / "masks_rf"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # ---- Загрузка или обучение модели ----
+    # Загрузка или обучение модели
     if TRAIN_NEW_MODEL:
-        # ---- 1. Сбор обучающих пикселей ----
+        # Сбор обучающих пикселей
         all_X = []
         all_y = []
         print("Загрузка обучающих данных...")
-        for comp_name, geojson_name in training_pairs:
-            comp_path = composite_base / territory_for_training / f"{comp_name}.tif"
+        for territory, comp_name, geojson_name in training_pairs:
+            comp_path = composite_base / territory / f"{comp_name}.tif"
             geojson_path = scene_dir / geojson_name
             if not comp_path.exists():
                 print(f"  Пропуск: композит {comp_path} не найден")
@@ -257,7 +255,7 @@ def main():
         y = np.concatenate(all_y, axis=0)
         print(f"\nВсего собрано {len(X)} пикселей (объектов: {np.sum(y==1)}, фон: {np.sum(y==0)})")
 
-        # ---- 2. Нормализация и обучение ----
+        # 2. Нормализация и обучение
         mean_stats, std_stats = compute_stats_from_samples(X)
         print(f"Статистики каналов (первые 6 mean): {mean_stats[:6]}...")
         X_norm = X.copy()
@@ -265,11 +263,11 @@ def main():
             X_norm[:, i] = (X_norm[:, i] - mean_stats[i]) / (std_stats[i] + 1e-6)
         model, best_thr = train_and_evaluate(X_norm, y, RF_CONFIG)
 
-        # ---- 3. Сохранение модели ----
+        # 3. Сохранение модели
         joblib.dump({'model': model, 'mean': mean_stats, 'std': std_stats, 'threshold': best_thr}, MODEL_PATH)
         print(f"Модель сохранена в {MODEL_PATH}")
     else:
-        # ---- Загрузка существующей модели ----
+        # Загрузка существующей модели
         if not MODEL_PATH.exists():
             raise FileNotFoundError(f"Файл модели не найден: {MODEL_PATH}. Установите TRAIN_NEW_MODEL = True для обучения.")
         checkpoint = joblib.load(MODEL_PATH)
@@ -280,7 +278,7 @@ def main():
         print(f"Модель загружена из {MODEL_PATH}")
         print(f"Порог: {best_thr:.3f}")
 
-    # ---- 4. Применение ко всем территориям ----
+    # Применение ко всем территориям
     for territory in territories_to_predict:
         comp_dir = composite_base / territory
         if not comp_dir.exists():
