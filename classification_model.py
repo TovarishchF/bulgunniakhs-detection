@@ -15,7 +15,6 @@ import warnings
 import sys
 warnings.filterwarnings("ignore")
 
-# Конфигурация
 RF_CONFIG = {
     "n_estimators": 100, #200
     "max_depth": 16, #20

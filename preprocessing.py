@@ -70,7 +70,6 @@ def align_and_downsample(scenes: dict, output_dir: Path = None):
 
     amga_pms_downsampled = reproject_to_ref(amga_pms["path"], ref_transform, ref_crs, ref_height, ref_width)
     yunkor_ms_aligned = reproject_to_ref(yunkor_ms["path"], ref_transform, ref_crs, ref_height, ref_width)
-
     result = {'reference_meta': ref_meta, 'amga_pms_downsampled': amga_pms_downsampled, 'yunkor_ms_aligned': yunkor_ms_aligned}
 
     if output_dir:
@@ -169,14 +168,12 @@ def compute_ndvi(ms_array):
     return ndvi
 
 def compute_slope(dem, resolution):
-    """Уклон в градусах."""
     dzdx = (np.roll(dem, -1, axis=1) - np.roll(dem, 1, axis=1)) / (2 * resolution)
     dzdy = (np.roll(dem, -1, axis=0) - np.roll(dem, 1, axis=0)) / (2 * resolution)
     slope = np.arctan(np.sqrt(dzdx**2 + dzdy**2)) * (180 / np.pi)
     return slope.astype(np.float32)
 
 def compute_aspect(dem, resolution):
-    """Экспозиция в градусах от севера."""
     dzdx = (np.roll(dem, -1, axis=1) - np.roll(dem, 1, axis=1)) / (2 * resolution)
     dzdy = (np.roll(dem, -1, axis=0) - np.roll(dem, 1, axis=0)) / (2 * resolution)
     aspect = np.arctan2(dzdy, dzdx) * (180 / np.pi)
@@ -185,16 +182,11 @@ def compute_aspect(dem, resolution):
     return aspect.astype(np.float32)
 
 def process_dem(territory, dem_path, ref_meta, output_dir):
-    """
-    Загружает DEM, перепроецирует на сетку ref_meta, вычисляет морфометрику,
-    сохраняет результаты в output_dir/morpho и возвращает словарь с путями к файлам.
-    """
     with rasterio.open(dem_path) as src_dem:
         dem_data = src_dem.read(1).astype(np.float32)
         src_transform = src_dem.transform
         src_crs = src_dem.crs
 
-    # Перепроецируем DEM на сетку снимков
     dst_shape = (ref_meta['height'], ref_meta['width'])
     dem_aligned = np.zeros(dst_shape, dtype=np.float32)
     reproject(
@@ -206,20 +198,14 @@ def process_dem(territory, dem_path, ref_meta, output_dir):
         dst_crs=ref_meta['crs'],
         resampling=Resampling.bilinear
     )
-
-    # Сглаживание для уменьшения шума
     dem_smoothed = gaussian_filter(dem_aligned, sigma=1)
 
-    # Размер пикселя (предполагаем квадратный пиксель)
     res_x = abs(ref_meta['transform'].a)
     res_y = abs(ref_meta['transform'].e)
     resolution = (res_x + res_y) / 2
-
-    # Вычисляем морфометрику
     slope = compute_slope(dem_smoothed, resolution)
     aspect = compute_aspect(dem_smoothed, resolution)
 
-    # Сохраняем результаты
     out_dir = Path(output_dir) / "morpho"
     out_dir.mkdir(parents=True, exist_ok=True)
     meta_out = ref_meta.copy()
@@ -255,7 +241,6 @@ def reproject_dem_to_match(dem_path, target_meta):
         dst_crs=target_meta['crs'],
         resampling=Resampling.bilinear
     )
-    # Небольшое сглаживание для уменьшения шума
     dem_aligned = gaussian_filter(dem_aligned, sigma=1)
     return dem_aligned
 
@@ -309,27 +294,23 @@ def main():
         if not items:
             continue
 
-        # Для каждого снимка территории
         for item in tqdm(items, desc=f"Processing {territory}"):
             if item["sensor"] != "MS":
-                continue   # только MS снимки (4 канала)
+                continue  
 
             with rasterio.open(item["path"]) as src:
                 ms_array = src.read().astype(np.float32)
                 meta = src.meta.copy()
-
-            # Базовый композит (6 каналов)
             composite = build_composite(ms_array)
 
             if territory in dem_paths:
                 dem_aligned = reproject_dem_to_match(dem_paths[territory], meta)
-                # Размер пикселя (предполагаем квадратный)
+                # Размер пикселя 
                 res_x = abs(meta['transform'].a)
                 res_y = abs(meta['transform'].e)
                 resolution = (res_x + res_y) / 2
                 slope = compute_slope(dem_aligned, resolution)
                 aspect = compute_aspect(dem_aligned, resolution)
-                # Добавляем два канала
                 composite = np.concatenate([
                     composite,
                     slope[np.newaxis, :, :],
