@@ -238,6 +238,27 @@ def process_dem(territory, dem_path, ref_meta, output_dir):
         'aspect': aspect_path,
     }
 
+def reproject_dem_to_match(dem_path, target_meta):
+    with rasterio.open(dem_path) as src_dem:
+        dem_data = src_dem.read(1).astype(np.float32)
+        src_transform = src_dem.transform
+        src_crs = src_dem.crs
+
+    dst_shape = (target_meta['height'], target_meta['width'])
+    dem_aligned = np.zeros(dst_shape, dtype=np.float32)
+    reproject(
+        source=dem_data,
+        destination=dem_aligned,
+        src_transform=src_transform,
+        src_crs=src_crs,
+        dst_transform=target_meta['transform'],
+        dst_crs=target_meta['crs'],
+        resampling=Resampling.bilinear
+    )
+    # Небольшое сглаживание для уменьшения шума
+    dem_aligned = gaussian_filter(dem_aligned, sigma=1)
+    return dem_aligned
+
 def load_morpho_layers(morpho_paths):
     """Загружает морфометрические слои из файлов."""
     layers = []
@@ -273,49 +294,62 @@ def main():
     results_dir = Path(__file__).parent / "result"
     results_dir.mkdir(parents=True, exist_ok=True)
 
-    aligned = prepare_ms_timeseries(scenes, output_dir=data_root / "aligned_ms")
-
+    # Загружаем DEM для территорий (один раз)
+    dem_paths = {}
     for territory in ["Amga", "Yunkor"]:
-        if territory not in aligned:
-            print(f"{territory}: нет MS-снимков, пропускаем")
-            continue
-
-        data = aligned[territory]
-        arrays = data["arrays"]
-        arrays.sort(key=lambda x: x["year"])
-
-        # Обработка DEM для территории
         dem_path = Path(__file__).parent / f"{territory}_dem.tif"
         if dem_path.exists():
-            print(f"Обработка DEM для {territory}")
-            morpho_paths = process_dem(territory, dem_path, data["ref_meta"], results_dir)
-            morpho_layers = load_morpho_layers(morpho_paths)  # (4, H, W)
+            dem_paths[territory] = dem_path
+            print(f"DEM для {territory} найден, будет добавлен уклон и экспозиция")
         else:
-            morpho_layers = None
             print(f"DEM для {territory} не найден, морфометрические признаки не добавлены")
 
-        # Создаём композиты для каждого снимка
-        for sc in arrays:
-            date_str = sc["date"].strftime("%d%m%Y")
-            out_composite = results_dir / "composites" / territory / f"{date_str}.tif"
-            out_composite.parent.mkdir(parents=True, exist_ok=True)
+    for territory in ["Amga", "Yunkor"]:
+        items = scenes[territory]
+        if not items:
+            continue
 
-            # Базовый композит 
-            composite = build_composite(sc["ms_array"])
-            if morpho_layers is not None:
-                # Добавляем морфометрические слои
-                composite = np.concatenate([composite, morpho_layers], axis=0)
+        # Для каждого снимка территории
+        for item in tqdm(items, desc=f"Processing {territory}"):
+            if item["sensor"] != "MS":
+                continue   # только MS снимки (4 канала)
 
-            meta_out = data["ref_meta"].copy()
+            with rasterio.open(item["path"]) as src:
+                ms_array = src.read().astype(np.float32)
+                meta = src.meta.copy()
+
+            # Базовый композит (6 каналов)
+            composite = build_composite(ms_array)
+
+            if territory in dem_paths:
+                dem_aligned = reproject_dem_to_match(dem_paths[territory], meta)
+                # Размер пикселя (предполагаем квадратный)
+                res_x = abs(meta['transform'].a)
+                res_y = abs(meta['transform'].e)
+                resolution = (res_x + res_y) / 2
+                slope = compute_slope(dem_aligned, resolution)
+                aspect = compute_aspect(dem_aligned, resolution)
+                # Добавляем два канала
+                composite = np.concatenate([
+                    composite,
+                    slope[np.newaxis, :, :],
+                    aspect[np.newaxis, :, :]
+                ], axis=0)
+
+            date_str = item["date"].strftime("%d%m%Y")
+            out_path = results_dir / "composites" / territory / f"{date_str}.tif"
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+
+            meta_out = meta.copy()
             meta_out.update({
                 "driver": "GTiff",
                 "count": composite.shape[0],
                 "dtype": composite.dtype,
                 "compress": "lzw"
             })
-            with rasterio.open(out_composite, "w", **meta_out) as dst:
+            with rasterio.open(out_path, "w", **meta_out) as dst:
                 dst.write(composite)
-            print(f"{territory} {date_str}: композит сохранён в {out_composite}")
+            print(f"{territory} {date_str}: композит ({composite.shape[0]} каналов) сохранён в {out_path}")
 
 if __name__ == "__main__":
     main()
