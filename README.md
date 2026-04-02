@@ -64,6 +64,8 @@ bulgunniakhs-detection/
 │ ├── aggregated/ # карты частоты деградации  
 │ ├── stats/ # CSV‑статистика  
 │ ├── plots/ # графики  
+│ ├── heatmaps/ # тепловые карты  
+│ ├── t_vector/ # центроиды пикселов объектов битмасок  
 │ ├── amga_clipped.geojson # кадастровые объекты, обрезанные по AOI  
 │ └── yunkor_clipped.geojson     
 │  
@@ -72,6 +74,7 @@ bulgunniakhs-detection/
 ├── mask_aggregation.py # агрегация масок в карту частоты  
 ├── vizualize_results.py # визуализация и статистика    
 ├── function.py # вспомогательные функции (кадастр -> GeoJSON)    
+├── vector.py # вспомогательная утилита извлечения центроидов пикселов битмаски  
 ├── pipeline.py # единый пайплайн    
 │  
 ├── requirements.txt # зависимости
