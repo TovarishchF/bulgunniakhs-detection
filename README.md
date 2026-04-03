@@ -85,7 +85,7 @@ bulgunniakhs-detection/
 
 ### 1. Клонирование репозитория
 ```bash
-git clone https://github.com/your-username/bulgunniakhs-detection.git
+git clone https://github.com/TovarishchF/bulgunniakhs-detection
 cd bulgunniakhs-detection
 ```   
 ## 2. Скачивание исходных данных
